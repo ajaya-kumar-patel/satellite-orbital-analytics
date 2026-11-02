@@ -1,0 +1,10 @@
+services:
+  satellite-analytics:
+    build: .
+    image: satellite-orbital-analytics:latest
+    container_name: satellite-orbital-analytics
+
+    volumes:
+      - ./data:/app/data
+
+    command: ["bash", "scripts/run_pipeline.sh", "--help"]
