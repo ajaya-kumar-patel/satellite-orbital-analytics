@@ -156,7 +156,7 @@
 - [x] Refined results validation
 - [x] Exploratory notebook and visualizations
 - [x] Time-resolution sensitivity check (0.1 seconds)
-- [ ] Continuous-time TCA optimization
+- [x] Continuous-time TCA optimization
 - [ ] Further independent validation and documentation
 
 **Important project limitation:** This is a preliminary, catalog-based conjunction-screening project. It is not an operational collision-avoidance system, validated conjunction assessment, or collision-probability estimation system.

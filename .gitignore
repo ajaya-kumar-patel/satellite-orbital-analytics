@@ -27,3 +27,13 @@ data/processed/
 
 # Temp file
 note.txt
+.env
+
+
+
+
+# Exclude collision probability and uncertainty analysis
+src/collision_risk/
+
+# Exclude historical orbital data downloader
+src/data/download_historical_gp.py
