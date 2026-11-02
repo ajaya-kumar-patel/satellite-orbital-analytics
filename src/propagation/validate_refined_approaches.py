@@ -11,6 +11,88 @@ SCREENING_FILE = (PROJECT_ROOT / "data/processed/iss/close_approach_screening.pa
 REFINED_FILE = (PROJECT_ROOT / "data/processed/iss/close_approach_refined.parquet")
 
 
+
+def validate_refined_data(screening, refined):
+    """Validate refined conjunction results against broad screening results."""
+
+    screening_required = ["norad_id", "distance_km"]
+    refined_required = [
+        "norad_id",
+        "refined_min_distance_km",
+        "relative_speed_km_s",
+        "overall_epoch_quality",
+        "refinement_status",
+        "refinement_boundary_minimum",
+    ]
+
+    missing_screening = set(screening_required) - set(screening.columns)
+    missing_refined = set(refined_required) - set(refined.columns)
+
+    if missing_screening:
+        raise ValueError(f"Missing screening columns: {sorted(missing_screening)}")
+
+    if missing_refined:
+        raise ValueError(f"Missing refined columns: {sorted(missing_refined)}")
+
+    if refined.empty:
+        raise ValueError("Refined dataset is empty")
+
+    distances = refined["refined_min_distance_km"].to_numpy(dtype=float)
+    speeds = refined["relative_speed_km_s"].to_numpy(dtype=float)
+
+    if not np.isfinite(distances).all():
+        raise ValueError("Non-finite refined distances found")
+
+    if not np.isfinite(speeds).all():
+        raise ValueError("Non-finite relative speeds found")
+
+    if (distances < 0).any():
+        raise ValueError("Negative refined distances found")
+
+    if (speeds < 0).any():
+        raise ValueError("Negative relative speeds found")
+
+    if refined["norad_id"].duplicated().any():
+        raise ValueError("Duplicate refined NORAD IDs found")
+
+    if refined[refined_required].isna().any().any():
+        raise ValueError("Missing values found in required refined columns")
+
+    screening_ids = set(screening["norad_id"].unique())
+    refined_ids = set(refined["norad_id"].unique())
+
+    unexpected_ids = refined_ids - screening_ids
+
+    if unexpected_ids:
+        raise ValueError(f"Unexpected candidates in refinement: {sorted(unexpected_ids)}")
+
+    comparison = refined.merge(
+        screening.groupby("norad_id")["distance_km"]
+        .min()
+        .rename("screening_min_distance_km"),
+        on="norad_id",
+        how="left",
+        validate="one_to_one",
+    )
+
+    reduction = (
+        comparison["screening_min_distance_km"]
+        - comparison["refined_min_distance_km"]
+    )
+
+    return {
+        "screening_candidates": len(screening_ids),
+        "refined_candidates": len(refined_ids),
+        "missing_candidates": len(screening_ids - refined_ids),
+        "minimum_distance_km": distances.min(),
+        "maximum_distance_km": distances.max(),
+        "minimum_relative_speed_km_s": speeds.min(),
+        "maximum_relative_speed_km_s": speeds.max(),
+        "boundary_minima": int(refined["refinement_boundary_minimum"].sum()),
+        "candidates_with_reduced_separation": int((reduction > 0).sum()),
+    }
+
+
 def main():
     for path in (SCREENING_FILE, REFINED_FILE):
         if not path.exists():
@@ -18,6 +100,10 @@ def main():
 
     screening = pd.read_parquet(SCREENING_FILE)
     refined = pd.read_parquet(REFINED_FILE)
+
+    report = validate_refined_data(screening, refined)
+    print("\nRefined data validation passed.")
+    print(report)
 
     print("=" * 65)
     print("ISS CLOSE-APPROACH REFINEMENT VALIDATION REPORT")

@@ -59,6 +59,68 @@ def propagate_at(satellite, timestamp):
 
     return position, velocity
 
+
+def find_minimum_separation(iss_satellite, candidate_satellite, center, window_minutes=WINDOW_MINUTES, step_seconds=STEP_SECONDS):
+    """Find the minimum separation between ISS and a candidate within a time window."""
+
+    offsets = range(
+        -window_minutes * 60,
+        window_minutes * 60 + 1,
+        step_seconds,
+    )
+
+    best = None
+    best_offset_seconds = None
+    valid_samples = 0
+
+    for offset in offsets:
+        timestamp = center + timedelta(seconds=offset)
+
+        iss_state = propagate_at(iss_satellite, timestamp)
+        candidate_state = propagate_at(candidate_satellite, timestamp)
+
+        if iss_state is None or candidate_state is None:
+            continue
+
+        iss_position, iss_velocity = iss_state
+        candidate_position, candidate_velocity = candidate_state
+
+        distance_km = float(
+            np.linalg.norm(candidate_position - iss_position)
+        )
+
+        relative_speed_km_s = float(
+            np.linalg.norm(candidate_velocity - iss_velocity)
+        )
+
+        valid_samples += 1
+
+        if best is None or distance_km < best["distance_km"]:
+            best = {
+                "timestamp": timestamp,
+                "distance_km": distance_km,
+                "relative_speed_km_s": relative_speed_km_s,
+            }
+            best_offset_seconds = offset
+
+    if best is None:
+        return None
+
+    return {
+        **best,
+        "valid_samples": valid_samples,
+        "best_offset_seconds": best_offset_seconds,
+        "refinement_boundary_minimum": (
+            abs(best_offset_seconds) == window_minutes * 60
+        ),
+        "refinement_status": (
+            "boundary_minimum"
+            if abs(best_offset_seconds) == window_minutes * 60
+            else "interior_minimum"
+        ),
+    }
+
+
 def classify_epoch_quality(offset_hours):
     absolute_offset = abs(offset_hours)
 
@@ -161,9 +223,17 @@ def main():
                     }
                     best_offset_seconds = offset
 
-            if best is None:
+            # if best is None:
+            #     failed.append((norad_id, "No valid propagated samples"))
+            #     continue
+
+            refinement = find_minimum_separation(iss_satellite, candidate_satellite,center)
+
+            if refinement is None:
                 failed.append((norad_id, "No valid propagated samples"))
                 continue
+
+            best = refinement
 
             results.append({
                 "norad_id": norad_id,
@@ -181,13 +251,11 @@ def main():
                 "iss_epoch_offset_hours": (
                     best["timestamp"] - iss_epoch.to_pydatetime()
                 ).total_seconds() / 3600,
-                "valid_refinement_samples": valid_samples,
+                "valid_refinement_samples": best["valid_samples"],
                 "refinement_step_seconds": STEP_SECONDS,
                 "refinement_window_minutes": WINDOW_MINUTES,
-                "refinement_boundary_minimum": (abs(best_offset_seconds) == WINDOW_MINUTES * 60),
-                "refinement_status": ("boundary_minimum"
-                                      if abs(best_offset_seconds) == WINDOW_MINUTES * 60
-                                      else "interior_minimum"),
+                "refinement_boundary_minimum": best["refinement_boundary_minimum"],
+                "refinement_status": best["refinement_status"],
                 "epoch_quality": classify_epoch_quality(
                     (best["timestamp"] - candidate_epoch.to_pydatetime()).total_seconds() / 3600),
                 "iss_epoch_quality": classify_epoch_quality(
